@@ -1,13 +1,13 @@
-#include <NTPClient.h>
 #include "FS.h"
 #include <ESP8266WiFi.h>
+#include <MPU9250_asukiaaa.h>
 #include <WiFiUdp.h>
 #include "Wire.h"
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
-#include "I2Cdev.h"
-#include "MPU6050.h"
-#include <MS5611.h>
+//#include "I2Cdev.h"
+//#include "MPU6050.h"
+//#include <MS5611.h>
 
 int reconnect_trials=0;
 int global_count=0;
@@ -16,10 +16,10 @@ long int timer0;
 long int timer1;
 long int startTimer;
 long int sampleNb;
-int16_t ax, ay, az;
-int16_t gx, gy, gz;
-int16_t mx, my, mz;
-MPU6050 accelgyro(MPU6050_ADDRESS_AD0_HIGH);
+
+MPU9250_asukiaaa mySensor(0x69);
+float aX, aY, aZ, aSqrt, gX, gY, gZ, mDirection, mX, mY, mZ;
+
 //Led and buttons
 const int buttonPin = 13;
 //variables for the debounce
@@ -38,7 +38,7 @@ WiFiUDP Udp;
 // By default 'time.nist.gov' is used with 60 seconds update interval and
 // no offset
 //NTPClient timeClient(ntpUDP);
-NTPClient timeClient(Udp, "europe.pool.ntp.org",7200);
+//NTPClient timeClient(Udp, "europe.pool.ntp.org",7200);
 
 const char* ssid = "Ke20 iPhone";/*"MotoG3";*/
 const char* password = "z12345678";
@@ -51,7 +51,7 @@ const int sleepTimeS = 10;
 int sampleBufferLength = 6000000; //nb of samples before sending data 18000 =30min
 int blinkInterval=10;  //blink one time every 10 samples 
 bool timeSynced=false; //if time has been synced
-MS5611 ms5611;
+//MS5611 ms5611;
 double realTemperature;
 long realPressure;
 
@@ -92,11 +92,11 @@ void disconnect_wifi(){
   connect_wifi();
 }*/
 void sync_time(){
-  connect_wifi();
+  /*connect_wifi();
   timeClient.begin();
   timeClient.update();
   Serial.println(timeClient.getFormattedTime());
-  disconnect_wifi();
+  disconnect_wifi();*/
 }
 
 
@@ -201,7 +201,7 @@ void deepSleep()
 void checkSettings()
 {
   Serial.print("Oversampling: ");
-  Serial.println(ms5611.getOversampling());
+  //Serial.println(ms5611.getOversampling());
 }
 void setup() {
     Serial.begin(115200);
@@ -227,19 +227,21 @@ void setup() {
     init_memory();
     //init MPU
     Serial.println("Initializing I2C devices...");
-    accelgyro.initialize();
+    mySensor.beginAccel();
+    mySensor.beginGyro();
+    mySensor.beginMag();
     //signal that everything is ok by blinking the led
     digitalWrite(2,LOW);
     delay(500);
     digitalWrite(2,HIGH);
     disconnect_wifi();
-    while(!ms5611.begin())
+   /* while(!ms5611.begin())
       {
       Serial.println("Could not find a valid MS5611 sensor, check wiring!");
       delay(100);
-      }
+      }*/
   // Get reference pressure for relative altitude
-  referencePressure = ms5611.readPressure();
+ // referencePressure = ms5611.readPressure();
 
   // Check settings
   checkSettings();
@@ -431,23 +433,34 @@ void loop() {
   else delay(1);
   //print to serial
   if (opMode == 1) {
-    accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    //accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    if(mySensor.accelUpdate() == 0) {
+    aX = mySensor.accelX();
+    aY = mySensor.accelY();
+    aZ = mySensor.accelZ();
+    }
+    if (mySensor.gyroUpdate() == 0) {
+    gX = mySensor.gyroX();
+    gY = mySensor.gyroY();
+    gZ = mySensor.gyroZ();
+    }
+    if (mySensor.magUpdate() == 0) {
+    mX = mySensor.magX();
+    mY = mySensor.magY();
+    mZ = mySensor.magZ();
+    }
     int sensorValue = analogRead(A0);
     Serial.print(timer0);
-    Serial.print(" ");
-    Serial.print(ax);
-    Serial.print(" ");
-    Serial.print(ay);
-    Serial.print(" ");
-    Serial.print(az);
-    Serial.print(" ");
-    Serial.print(gx);
-    Serial.print(" ");
-    Serial.print(gy);
-    Serial.print(" ");
-    Serial.print(gz);
-    Serial.print(" ");
-    Serial.println(sensorValue);
+    Serial.print(" "+String(aX));
+    Serial.print(" "+String(aY));
+    Serial.print(" "+String(aZ));
+    Serial.print(" "+String(gX));
+    Serial.print(" "+String(gY));
+    Serial.print(" "+String(gZ));
+    Serial.print(" "+String(mX));
+    Serial.print(" "+String(mY));
+    Serial.print(" "+String(mZ));
+    Serial.println(" "+String(sensorValue));
     //delay(2);
   }
   //print in file
@@ -457,11 +470,11 @@ void loop() {
     if(timer1-startTimer>(1000/sampleRateHz)) {
     //Serial.println(timer1-startTimer);
     startTimer=timer1;  
-    accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+   // accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     // Read true temperature & Pressure
-    realTemperature = ms5611.readTemperature();
-    realPressure = ms5611.readPressure();
-    int sensorValue = analogRead(A0);
+    //realTemperature = ms5611.readTemperature();
+   // realPressure = ms5611.readPressure();
+   // int sensorValue = analogRead(A0);
     //stop recording if <3.3v or more than 1 hour
     if(/*sensorValue<600 ||*/ sampleNb>=sampleBufferLength) {
        fw.print("Recording nb :");
@@ -494,25 +507,46 @@ void loop() {
       }
       //print to file 
       else{
-        /*  fw.print(timeClient.getFormattedTime()+" ");
+        //fw.print(timeClient.getFormattedTime()+" ");
+          if(mySensor.accelUpdate() == 0) {
+             aX = mySensor.accelX();
+             aY = mySensor.accelY();
+             aZ = mySensor.accelZ();
+             }
+          if (mySensor.gyroUpdate() == 0) {
+            gX = mySensor.gyroX();
+            gY = mySensor.gyroY();
+            gZ = mySensor.gyroZ();
+            }
+          if (mySensor.magUpdate() == 0) {
+            mX = mySensor.magX();
+            mY = mySensor.magY();
+            mZ = mySensor.magZ();
+            }
           fw.print(sampleNb);
           fw.print(" ");
-          fw.print(ax);
+          fw.print(aX);
           fw.print(" ");
-          fw.print(ay);
+          fw.print(aY);
           fw.print(" ");
-          fw.print(az);
+          fw.print(aZ);
           fw.print(" ");
-          fw.print(gx);
+          fw.print(gX);
           fw.print(" ");
-          fw.print(gy);
+          fw.print(gY);
           fw.print(" ");
-          fw.print(gz);
+          fw.print(gZ);
           fw.print(" ");
-          fw.println(sensorValue);*/
-          fw.print(realTemperature);
+          fw.print(mX);
           fw.print(" ");
-          fw.println(realPressure);
+          fw.print(mY);
+          fw.print(" ");
+          fw.print(mZ);
+          fw.println(" ");
+         // fw.println(sensorValue);
+         // fw.print(realTemperature);
+        //  fw.print(" ");
+        //  fw.println(realPressure);
           sampleNb++;
           digitalWrite(2,sampleNb%blinkInterval);
           }
@@ -524,22 +558,25 @@ void loop() {
     if(timer1-startTimer>100) {
       sampleNb++;
       startTimer=timer1;
-      //get data
-      accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
       //int sensorValue = analogRead(A0);
+      if(mySensor.accelUpdate() == 0) {
+             aX = mySensor.accelX();
+             aY = mySensor.accelY();
+             aZ = mySensor.accelZ();
+             }
       //send udp data
       Udp.begin(localPort);
       char msg[30];
       Udp.beginPacket(host, 2390);
      // sprintf(msg, "S: %d 2 3 a %d",ax,ay);
-      sprintf(msg, "%d %d %d",ax,ay,az);
+      sprintf(msg, "%s %s %s",aX,aY,aZ);
       Udp.write(msg);
       Udp.endPacket();   
-      Serial.print(ax);
+      Serial.print(aX);
       Serial.print(" ");
-      Serial.print(ay);
+      Serial.print(aY);
       Serial.print(" ");
-      Serial.println(az);
+      Serial.println(aZ);
       }
     else delay(2);
     /*  accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
